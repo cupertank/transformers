@@ -515,7 +515,10 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
 
         max_positions = config.max_position_embeddings
         self.register_buffer(
-            "bias", torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)), persistent=False
+            "bias",
+            torch.where(torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)), 0, -10000)
+            .to(dtype=config.torch_dtype),
+            persistent=False
         )
 
         self.gradient_checkpointing = False
@@ -583,7 +586,7 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
             past_length = 0
             past_key_values = tuple([None] * len(self.h))
         else:
-            past_length = past_key_values[0].size(-2)
+            past_length = past_key_values[0][0].size(-2)
 
         if attention_mask is not None and len(attention_mask.shape) == 2 and position_ids is None:
             # create position_ids on the fly for batch generation
@@ -601,13 +604,11 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
         self_attention_mask = self.bias[None, key_length - query_length : key_length, :key_length]
 
         if attention_mask is not None:
-            self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1).to(
-                dtype=torch.bool, device=self_attention_mask.device
-            )
+            self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1)
 
         # MQA models: (batch_size, query_length, n_heads, key_length)
         # MHA models: (batch_size, n_heads, query_length, key_length)
-        attention_mask = self_attention_mask.unsqueeze(2 if self.multi_query else 1)
+        attention_mask = self_attention_mask.unsqueeze(1)
 
         # If a 2D or 3D attention mask is provided for the cross-attention
         # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
