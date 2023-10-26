@@ -735,10 +735,7 @@ class GPTBigCodeForCausalLM(GPTBigCodePreTrainedModel):
         token_type_ids = kwargs.get("token_type_ids", None)
         # Omit tokens covered by past_key_values
         if past_key_values:
-            if self.config.multi_query:
-                past_length = past_key_values[0].shape[1]
-            else:
-                past_length = past_key_values[0].shape[2]
+            past_length = past_key_values[0][0].shape[2]
 
             # Some generation methods already pass only the last input ID
             if input_ids.shape[1] > past_length:
