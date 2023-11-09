@@ -119,6 +119,7 @@ class GPTBigCodeConfig(PretrainedConfig):
         attention_softmax_in_fp32=True,
         scale_attention_softmax_in_fp32=True,
         multi_query=True,
+        use_deepspeed=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -138,6 +139,7 @@ class GPTBigCodeConfig(PretrainedConfig):
         self.attention_softmax_in_fp32 = attention_softmax_in_fp32
         self.scale_attention_softmax_in_fp32 = scale_attention_softmax_in_fp32
         self.multi_query = multi_query
+        self.use_deepspeed = use_deepspeed
 
         self.bos_token_id = bos_token_id
         self.eos_token_id = eos_token_id
