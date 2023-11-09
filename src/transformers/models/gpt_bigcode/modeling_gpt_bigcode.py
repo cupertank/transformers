@@ -763,12 +763,17 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
 
         max_positions = config.max_position_embeddings
-        self.register_buffer(
-            "bias",
-            torch.where(torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)), 0, -10000)
-            .to(dtype=config.torch_dtype),
-            persistent=False
-        )
+        if self.config.use_deepspeed:
+            self.register_buffer(
+                "bias",
+                torch.where(torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)), 0, -10000)
+                .to(dtype=config.torch_dtype),
+                persistent=False
+            )
+        else:
+            self.register_buffer(
+                "bias", torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)), persistent=False
+            )
 
         self.gradient_checkpointing = False
 
@@ -835,7 +840,10 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
             past_length = 0
             past_key_values = tuple([None] * len(self.h))
         else:
-            past_length = past_key_values[0][0].size(-2)
+            if self.config.use_deepspeed:
+                past_length = past_key_values[0][0].size(-2)
+            else:
+                past_length = past_key_values[0].size(-2)
 
         if attention_mask is not None and len(attention_mask.shape) == 2 and position_ids is None:
             # create position_ids on the fly for batch generation
@@ -863,13 +871,21 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
         else:
             # 4d mask is passed through the layers
             if attention_mask is not None:
-                self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1).to(
-                    device=self_attention_mask.device
-                )
+                if self.config.use_deepspeed:
+                    self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1).to(
+                        device=self_attention_mask.device
+                    )
+                else:
+                    self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1).to(
+                        dtype=torch.bool, device=self_attention_mask.device
+                    )
 
             # MQA models: (batch_size, query_length, n_heads, key_length)
             # MHA models: (batch_size, n_heads, query_length, key_length)
-            attention_mask = self_attention_mask.unsqueeze(1)
+            if self.config.use_deepspeed:
+                attention_mask = self_attention_mask.unsqueeze(1)
+            else:
+                attention_mask = self_attention_mask.unsqueeze(2 if self.multi_query else 1)
 
             # If a 2D or 3D attention mask is provided for the cross-attention
             # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
@@ -996,7 +1012,12 @@ class GPTBigCodeForCausalLM(GPTBigCodePreTrainedModel):
         token_type_ids = kwargs.get("token_type_ids", None)
         # Omit tokens covered by past_key_values
         if past_key_values:
-            past_length = past_key_values[0][0].shape[2]
+            if self.config.use_deepspeed:
+                past_length = past_key_values[0][0].shape[2]
+            elif self.config.multi_query:
+                past_length = past_key_values[0].shape[1]
+            else:
+                past_length = past_key_values[0].shape[2]
 
             # Some generation methods already pass only the last input ID
             if input_ids.shape[1] > past_length:
