@@ -765,10 +765,7 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
         max_positions = config.max_position_embeddings
         if self.config.use_deepspeed:
             self.register_buffer(
-                "bias",
-                torch.where(torch.tril(torch.ones((max_positions, max_positions), dtype=torch.bool)), 0, -10000)
-                .to(dtype=config.torch_dtype),
-                persistent=False
+                "bias", torch.tril(torch.ones((max_positions, max_positions), dtype=torch.int64)), persistent=False
             )
         else:
             self.register_buffer(
@@ -875,6 +872,7 @@ class GPTBigCodeModel(GPTBigCodePreTrainedModel):
                     self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1).to(
                         device=self_attention_mask.device
                     )
+                    self_attention_mask = ((1 - self_attention_mask) * -10000).to(dtype=self.config.torch_dtype)
                 else:
                     self_attention_mask = self_attention_mask * attention_mask.view(batch_size, 1, -1).to(
                         dtype=torch.bool, device=self_attention_mask.device
